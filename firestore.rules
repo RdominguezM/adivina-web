@@ -1,0 +1,26 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Partidas: cualquier jugador con sesión (anónima) puede leer y escribir
+    match /games/{code} {
+      allow read, write: if request.auth != null;
+
+      // Jugadores de la partida
+      match /players/{pid} {
+        allow read, write: if request.auth != null;
+      }
+
+      // Marcas de "dudosa": cada jugador solo escribe las suyas
+      match /marks/{pid} {
+        allow read: if request.auth != null;
+        allow write: if request.auth != null && request.auth.uid == pid;
+      }
+    }
+
+    // Personaje secreto de cada jugador: solo lo lee y escribe su dueño
+    match /data/users/{uid}/{docId} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+  }
+}
