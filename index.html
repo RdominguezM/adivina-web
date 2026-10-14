@@ -167,7 +167,7 @@ th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute
    Pega aquí la configuración de tu proyecto de Firebase
    (Consola de Firebase > Configuración del proyecto > Tus apps > Web).
    Estos valores no son secretos: la seguridad la dan las reglas de Firestore. */
-const firebaseConfig = {
+const FIREBASE_CONFIG = {
   apiKey: "AIzaSyBye2rhCaIy8m9SwG7Urq9boKxJUXtZGo8",
   authDomain: "adivina-53cfc.firebaseapp.com",
   projectId: "adivina-53cfc",
@@ -797,20 +797,44 @@ function renderEnded(){
 }
 
 /* ---------- Arranque ---------- */
+function diagnose(e,paso){
+  const c=String((e&&e.code)||"");
+  if(location.protocol==="file:") return "Abriste el juego como archivo de tu computadora. Ábrelo desde el link de GitHub Pages (https://TU-USUARIO.github.io/...).";
+  if(c.includes("operation-not-allowed")||c.includes("admin-restricted")) return "El inicio de sesión Anónimo no está activado. Ve a Firebase > Authentication > Sign-in method > Anónimo > Activar.";
+  if(c.includes("api-key")||c.includes("invalid-api-key")) return "La apiKey de FIREBASE_CONFIG no es válida. Copia de nuevo la configuración desde Firebase.";
+  if(c.includes("unauthorized-domain")) return "Agrega este dominio ("+location.hostname+") en Firebase > Authentication > Settings > Dominios autorizados.";
+  if(c.includes("network-request-failed")) return "El navegador no pudo llegar a Firebase. Desactiva el bloqueador de anuncios para esta página o prueba otra red.";
+  if(c.includes("permission-denied")) return "Firestore rechazó la lectura. Publica las reglas de firestore.rules en Firestore > Reglas.";
+  if(c.includes("not-found")||c.includes("failed-precondition")) return "No existe la base de datos de Firestore. Créala en Firebase > Firestore Database > Crear base de datos.";
+  if(c==="timeout") return "Firebase no respondió a tiempo ("+paso+"). Suele ser un bloqueador de anuncios o una extensión de privacidad; desactívala para esta página y recarga.";
+  return "No se pudo conectar con Firebase.";
+}
+window.addEventListener("error",ev=>showBanner("Error en la página.",String(ev.message||ev.error)));
+window.addEventListener("unhandledrejection",ev=>showBanner("Error en la página.",String((ev.reason&&(ev.reason.code||ev.reason.message))||ev.reason)));
+
 renderHome();
 (async()=>{
   if(!FIREBASE_CONFIG.apiKey || FIREBASE_CONFIG.apiKey.startsWith("PEGA")){
     showBanner("Falta configurar Firebase. Pega la configuración de tu proyecto en FIREBASE_CONFIG dentro de index.html.","Código: sin-config"); return;
   }
+  const step=t=>{$("#whoName").textContent=t;};
+  const timeout=(p,ms,label)=>Promise.race([p,new Promise((_,rej)=>setTimeout(()=>rej({code:"timeout",message:label}),ms))]);
+  let paso="iniciando Firebase";
   try{
+    step("Conectando: iniciando…");
     const fbApp=initializeApp(FIREBASE_CONFIG);
     const auth=getAuth(fbApp);
-    const current=await new Promise(res=>{const off=onAuthStateChanged(auth,u=>{off();res(u);});});
-    const u = current || (await signInAnonymously(auth)).user;
+    paso="revisando la sesión"; step("Conectando: sesión…");
+    const current=await timeout(new Promise(res=>{const off=onAuthStateChanged(auth,u=>{off();res(u);});}),12000,"sesión");
+    paso="iniciando sesión anónima"; step("Conectando: entrando…");
+    const u = current || (await timeout(signInAnonymously(auth),15000,"inicio anónimo")).user;
     uid=u.uid;
+    paso="abriendo la base de datos"; step("Conectando: base de datos…");
     db=makeDb(getFirestore(fbApp));
+    await timeout(db.collection("games").where("status","==","lobby").get(),15000,"base de datos");
   }catch(e){
-    showBanner("No se pudo conectar con Firebase. Revisa que el inicio de sesión anónimo esté activado.","Código: "+(e.code||e.message)); db=null; renderHome(); return;
+    showBanner(diagnose(e,paso),"Falló en: "+paso+" · Código: "+(e.code||e.message||String(e)));
+    db=null; step("Sin conexión"); renderHome(); return;
   }
   $("#whoName").textContent=myNick()||"Sin apodo";
   homeUnsub=db.collection("games").where("status","==","lobby").onSnapshot(s=>{
